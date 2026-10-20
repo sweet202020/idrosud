@@ -1,9 +1,9 @@
-import { articles } from "./content/blog";
+import { articles } from "./content/blog.ts";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // Keep the LAN preview connected to development updates.
-  allowedDevOrigins: ["192.168.1.7"],
+  allowedDevOrigins: ["192.168.1.7", "192.168.1.49", "172.20.96.1"],
   redirects() {
     return [
       {

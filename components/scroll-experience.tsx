@@ -12,7 +12,7 @@ export function ScrollExperience() {
   useEffect(() => {
     const root = document.documentElement;
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const tracked = new Map<HTMLElement, Animation | null>();
+    const tracked = new Set<HTMLElement>();
     const shown = new Set<HTMLElement>();
     const enabled = () =>
       motionIsEnabled(preference.matches, root.dataset.motion);
@@ -23,88 +23,60 @@ export function ScrollExperience() {
     const styles = getComputedStyle(root);
     const milliseconds = (value: string) =>
       parseFloat(value) * (value.trim().endsWith("ms") ? 1 : 1000);
-    const duration =
-      milliseconds(styles.getPropertyValue("--reveal-duration")) || 1100;
     const stagger =
       milliseconds(styles.getPropertyValue("--stagger-step")) || 110;
-    const distance =
-      styles.getPropertyValue("--reveal-distance").trim() || "56px";
-    const easing = styles.getPropertyValue("--ease").trim() || "ease-out";
 
-    function createEntrance(node: HTMLElement, paused: boolean) {
+    function prepareEntrance(node: HTMLElement) {
       const cards = node.matches(
         ".category-card, .feature-card, .article-card, .product-card, .team-profile",
       );
       const index = node.parentElement
         ? [...node.parentElement.children].indexOf(node)
         : 0;
-      // Explicit keyframes also work when registration and intersection happen in one paint.
-      const animation = node.animate(
-        [
-          { opacity: 0, transform: "translate3d(0," + distance + ",0)" },
-          { opacity: 1, transform: "translate3d(0,0,0)" },
-        ],
-        {
-          duration,
-          easing,
-          delay: cards ? (Math.max(0, index) % 3) * stagger : 0,
-          fill: "both",
-        },
+      node.style.setProperty(
+        "--reveal-delay",
+        `${cards ? (Math.max(0, index) % 3) * stagger : 0}ms`,
       );
-      tracked.set(node, animation);
-      if (paused) animation.pause();
-      animation.onfinish = () => {
-        animation.cancel();
-        if (tracked.has(node)) tracked.set(node, null);
-      };
+      node.classList.add("scroll-reveal-ready");
     }
 
     function reveal(node: HTMLElement, animate = true) {
+      if (!animate || !enabled()) node.classList.remove("scroll-reveal-ready");
       if (shown.has(node)) return;
       shown.add(node);
       observer?.unobserve(node);
-      const waiting = tracked.get(node);
-      if (!animate || !enabled() || typeof node.animate !== "function") {
-        waiting?.cancel();
-        tracked.set(node, null);
-        return;
-      }
-      if (waiting) waiting.play();
-      else createEntrance(node, false);
+      node.classList.add("is-revealed");
     }
 
     function discover() {
       discoveryFrame = 0;
-      for (const [node, animation] of tracked) {
+      for (const node of tracked) {
         if (!node.isConnected) {
-          animation?.cancel();
           tracked.delete(node);
+          shown.delete(node);
         }
       }
-      document.querySelectorAll<HTMLElement>(targets).forEach((node) => {
+      const candidates = [...document.querySelectorAll<HTMLElement>(targets)].filter(
+        // Prefer individual blocks inside declarative section wrappers.
+        (node) => !node.hasAttribute("data-reveal") || !node.querySelector(targets),
+      );
+      const candidateSet = new Set(candidates);
+      candidates.forEach((node) => {
         if (tracked.has(node)) return;
-        // Reveal cards/media individually rather than animating their large parent twice.
+        // A card or chapter owns its entrance; never fade its descendants again.
+        for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+          if (candidateSet.has(parent)) return;
+        }
+        tracked.add(node);
+        if (!enabled()) return;
         if (
-          node.hasAttribute("data-reveal") &&
-          node.querySelector(
-            ".section-header, .category-card, .media, .feature-card, .article-card",
-          )
-        )
-          return;
-        tracked.set(node, null);
-        if (
-          !enabled() ||
           !observer ||
-          node.getBoundingClientRect().bottom < 0 ||
+          node.getBoundingClientRect().top < window.innerHeight ||
           node.contains(document.activeElement)
         )
           reveal(node, false);
         else {
-          if (
-            node.getBoundingClientRect().top >= window.innerHeight &&
-            typeof node.animate === "function"
-          )
-            createEntrance(node, true);
+          prepareEntrance(node);
           observer.observe(node);
         }
       });
@@ -140,8 +112,6 @@ export function ScrollExperience() {
     }
     function configure() {
       observer?.disconnect();
-      tracked.forEach((animation) => animation?.cancel());
-      shown.clear();
       root.classList.toggle("scroll-motion-enabled", enabled());
       observer =
         enabled() && "IntersectionObserver" in window
@@ -151,22 +121,31 @@ export function ScrollExperience() {
                   if (entry.isIntersecting) reveal(entry.target as HTMLElement);
                 });
               },
-              { threshold: 0, rootMargin: "0px 0px -12% 0px" },
+              { threshold: 0, rootMargin: "0px 0px -18% 0px" },
             )
           : undefined;
-      tracked.forEach((_, node) => {
+      tracked.forEach((node) => {
+        if (!enabled()) {
+          node.classList.remove("scroll-reveal-ready");
+          return;
+        }
         if (!shown.has(node)) {
-          if (observer) observer.observe(node);
-          else reveal(node, false);
+          if (observer) {
+            if (node.getBoundingClientRect().top < window.innerHeight)
+              reveal(node, false);
+            else {
+              prepareEntrance(node);
+              observer.observe(node);
+            }
+          } else reveal(node, false);
         }
       });
       discover();
     }
     function onFocus(event: FocusEvent) {
       if (!(event.target instanceof HTMLElement)) return;
-      tracked.forEach((animation, node) => {
+      tracked.forEach((node) => {
         if (node.contains(event.target as HTMLElement)) {
-          animation?.cancel();
           reveal(node, false);
         }
       });
@@ -191,8 +170,9 @@ export function ScrollExperience() {
       window.removeEventListener("scroll", scheduleScroll);
       window.removeEventListener("resize", scheduleDiscovery);
       document.removeEventListener("focusin", onFocus);
-      tracked.forEach((animation, node) => {
-        animation?.cancel();
+      tracked.forEach((node) => {
+        node.classList.remove("scroll-reveal-ready", "is-revealed");
+        node.style.removeProperty("--reveal-delay");
       });
       document
         .querySelectorAll<HTMLElement>("[data-scroll-timeline]")

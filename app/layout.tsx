@@ -2,7 +2,6 @@ import { siteUrl } from "@/content/config";
 import type { Metadata } from "next";
 import { Header, Footer } from "@/components/navigation";
 import { ScrollExperience } from "@/components/scroll-experience";
-import { MotionToggle } from "@/components/motion-toggle";
 import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: siteUrl,
@@ -26,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="it">
+    <html lang="it" data-motion="enabled">
       <body>
         <a className="skip-link" href="#contenuto">
           Vai al contenuto
@@ -35,7 +34,6 @@ export default function RootLayout({
         <ScrollExperience />
         <main id="contenuto">{children}</main>
         <Footer />
-        <MotionToggle />
       </body>
     </html>
   );
